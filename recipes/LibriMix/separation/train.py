@@ -44,7 +44,7 @@ class Separation(sb.Brain):
 
         # Unpack lists and put tensors in the right device
         mix, mix_lens = mix
-        mix, mix_lens = mix.to(self.device), mix_lens.to(self.device)
+        mix = mix.to(self.device)
 
         # Convert targets to tensor
         targets = torch.cat(
@@ -55,6 +55,7 @@ class Separation(sb.Brain):
         # Add speech distortions
         if stage == sb.Stage.TRAIN:
             with torch.no_grad():
+                mix_lens = mix_lens.to(self.device)
                 if self.hparams.use_speedperturb or self.hparams.use_rand_shift:
                     mix, targets = self.add_speed_perturb(targets, mix_lens)
 
@@ -139,13 +140,13 @@ class Separation(sb.Brain):
             if (
                 loss < self.hparams.loss_upper_lim and loss.nelement() > 0
             ):  # the fix for computational problems
-                self.scaler.scale(loss).backward()
+                self.scaler.scale(loss).backward() # loss.backward()
                 if self.hparams.clip_grad_norm >= 0:
                     self.scaler.unscale_(self.optimizer)
                     torch.nn.utils.clip_grad_norm_(
                         self.modules.parameters(), self.hparams.clip_grad_norm,
                     )
-                self.scaler.step(self.optimizer)
+                self.scaler.step(self.optimizer) # optimizer.step()
                 self.scaler.update()
             else:
                 self.nonfinite_count += 1
@@ -193,8 +194,8 @@ class Separation(sb.Brain):
     def evaluate_batch(self, batch, stage):
         """Computations needed for validation/test batches"""
         snt_id = batch.id
-        mixture = batch.mix_sig
-        targets = [batch.s1_sig, batch.s2_sig]
+        mixture = batch.mix_sig # (batch*audio len, num of mix)
+        targets = [batch.s1_sig, batch.s2_sig] # [(batch*audio len, num of mix), (batch*audio len, num of mix)]
         if self.hparams.num_spks == 3:
             targets.append(batch.s3_sig)
 
@@ -302,16 +303,25 @@ class Separation(sb.Brain):
     def cut_signals(self, mixture, targets):
         """This function selects a random segment of a given length withing the mixture.
         The corresponding targets are selected accordingly"""
+        max_length = self.hparams.training_signal_len
+        if mixture.shape[1] < max_length:
+            # padding
+            pad = torch.zeros([mixture.shape[0], max_length-mixture.shape[1]]).to(self.device)
+            mixture = torch.cat((mixture, pad), 1)
+            pad = torch.zeros([targets.shape[0], max_length-targets.shape[1], targets.shape[2]]).to(self.device)
+            targets = torch.cat((targets, pad), 1)
+        else:
+            # cut
         randstart = torch.randint(
             0,
-            1 + max(0, mixture.shape[1] - self.hparams.training_signal_len),
+                1 + max(0, mixture.shape[1] - max_length),
             (1,),
         ).item()
         targets = targets[
-            :, randstart : randstart + self.hparams.training_signal_len, :
+                :, randstart : randstart + max_length, :
         ]
         mixture = mixture[
-            :, randstart : randstart + self.hparams.training_signal_len
+                :, randstart : randstart + max_length
         ]
         return mixture, targets
 
@@ -378,38 +388,39 @@ class Separation(sb.Brain):
                     sisnr_i = sisnr - sisnr_baseline
 
                     # Compute SDR
-                    sdr, _, _, _ = bss_eval_sources(
-                        targets[0].t().cpu().numpy(),
-                        predictions[0].t().detach().cpu().numpy(),
-                    )
+                    # sdr, _, _, _ = bss_eval_sources(
+                    #     targets[0].t().cpu().numpy(),
+                    #     predictions[0].t().detach().cpu().numpy(),
+                    # )
 
-                    sdr_baseline, _, _, _ = bss_eval_sources(
-                        targets[0].t().cpu().numpy(),
-                        mixture_signal[0].t().detach().cpu().numpy(),
-                    )
+                    # sdr_baseline, _, _, _ = bss_eval_sources(
+                    #     targets[0].t().cpu().numpy(),
+                    #     mixture_signal[0].t().detach().cpu().numpy(),
+                    # )
 
-                    sdr_i = sdr.mean() - sdr_baseline.mean()
+                    # sdr_i = sdr.mean() - sdr_baseline.mean()
 
                     # Saving on a csv file
+                    for idx in range(len(snt_id)):
                     row = {
-                        "snt_id": snt_id[0],
-                        "sdr": sdr.mean(),
-                        "sdr_i": sdr_i,
-                        "si-snr": -sisnr.item(),
-                        "si-snr_i": -sisnr_i.item(),
+                            "snt_id": snt_id[idx],
+                            # "sdr": sdr.mean(),
+                            # "sdr_i": sdr_i,
+                            "si-snr": -sisnr[idx].item(),
+                            "si-snr_i": -sisnr_i[idx].item(),
                     }
                     writer.writerow(row)
 
                     # Metric Accumulation
-                    all_sdrs.append(sdr.mean())
-                    all_sdrs_i.append(sdr_i.mean())
-                    all_sisnrs.append(-sisnr.item())
-                    all_sisnrs_i.append(-sisnr_i.item())
+                        # all_sdrs.append(sdr.mean())
+                        # all_sdrs_i.append(sdr_i.mean())
+                        all_sisnrs.append(-sisnr[idx].item())
+                        all_sisnrs_i.append(-sisnr_i[idx].item())
 
                 row = {
                     "snt_id": "avg",
-                    "sdr": np.array(all_sdrs).mean(),
-                    "sdr_i": np.array(all_sdrs_i).mean(),
+                    # "sdr": np.array(all_sdrs).mean(),
+                    # "sdr_i": np.array(all_sdrs_i).mean(),
                     "si-snr": np.array(all_sisnrs).mean(),
                     "si-snr_i": np.array(all_sisnrs_i).mean(),
                 }
@@ -417,8 +428,8 @@ class Separation(sb.Brain):
 
         logger.info("Mean SISNR is {}".format(np.array(all_sisnrs).mean()))
         logger.info("Mean SISNRi is {}".format(np.array(all_sisnrs_i).mean()))
-        logger.info("Mean SDR is {}".format(np.array(all_sdrs).mean()))
-        logger.info("Mean SDRi is {}".format(np.array(all_sdrs_i).mean()))
+        # logger.info("Mean SDR is {}".format(np.array(all_sdrs).mean()))
+        # logger.info("Mean SDRi is {}".format(np.array(all_sdrs_i).mean()))
 
     def save_audio(self, snt_id, mixture, targets, predictions):
         "saves the test audio (mixture, targets, and estimated sources) on disk"
@@ -440,6 +451,7 @@ class Separation(sb.Brain):
                 save_file, signal.unsqueeze(0).cpu(), self.hparams.sample_rate
             )
 
+            if not self.hparams.real_data:
             # Original source
             signal = targets[0, :, ns]
             signal = signal / signal.abs().max()
@@ -667,6 +679,40 @@ if __name__ == "__main__":
             valid_loader_kwargs=hparams["dataloader_opts"],
         )
 
+    if "demo" in hparams:
+        if hparams["real_data"]:
+            #real data
+            mixture, _ = torchaudio.load(hparams["real_data_path"])
+            mixture = mixture[0].unsqueeze(0)
+            s1_sig = torch.zeros(1, 1)
+            s2_sig = torch.zeros(1, 1)
+
+        else:
+            # testing set
+            demo_data = test_data[hparams["test_idx"]]
+            mixture = demo_data["mix_sig"].unsqueeze(0)
+            s1_sig = demo_data["s1_sig"].unsqueeze(0)
+            s2_sig = demo_data["s2_sig"].unsqueeze(0)
+
+        mixture = (mixture, torch.tensor(mixture.shape[0]))
+        s1_sig = (s1_sig, torch.tensor(s1_sig.shape[0]))
+        s2_sig = (s2_sig, torch.tensor(s2_sig.shape[0]))
+        targets = [s1_sig, s2_sig]
+        stage = sb.Stage.TEST
+
+        with torch.no_grad():
+            predictions, targets = separator.compute_forward(mixture, targets, stage)
+            if not hparams["real_data"]:
+                loss = separator.compute_objectives(predictions, targets)
+        
+        separator.save_audio(hparams["test_idx"], mixture, targets, predictions)
+
+        if not hparams["real_data"]:
+            print("==============================================================================================================================\n")
+            print(f"testing SI-SNR: {-loss.item()}")
+
+    else:
     # Eval
+        separator.evaluate(valid_data, min_key="si-snr")
     separator.evaluate(test_data, min_key="si-snr")
     separator.save_results(test_data)

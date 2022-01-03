@@ -7,7 +7,7 @@
 # Basic parameters
 # Seed needs to be set at top of yaml, before objects with parameters are made
 #
-seed: 1234
+seed: 1233
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
 
 # Data params
@@ -23,7 +23,7 @@ experiment_name: sepformer-libri2mix
 output_folder: !ref results/<experiment_name>/<seed>
 train_log: !ref <output_folder>/train_log.txt
 save_folder: !ref <output_folder>/save
-train_data: !ref <save_folder>/libri2mix_train-360.csv
+train_data: !ref <save_folder>/libri2mix_train-100.csv
 valid_data: !ref <save_folder>/libri2mix_dev.csv
 test_data: !ref <save_folder>/libri2mix_test.csv
 skip_prep: False
@@ -45,10 +45,10 @@ lr: 0.00015
 clip_grad_norm: 5
 loss_upper_lim: 999999  # this is the upper limit for an acceptable loss
 # if True, the training sequences are cut to a specified length
-limit_training_signal_len: False
+limit_training_signal_len: True
 # this is the length of sequences if we choose to limit
 # the signal length of training sequences
-training_signal_len: 32000000
+training_signal_len: 60000
 
 # Set it to True to dynamically create mixtures at training time
 dynamic_mixing: False
@@ -90,6 +90,8 @@ dataloader_opts:
     batch_size: !ref <batch_size>
     num_workers: 0
 
+# Chunking
+chunk_size_k: 250
 
 # Specifying the network
 Encoder: !new:speechbrain.lobes.models.dual_path.Encoder
@@ -120,7 +122,7 @@ MaskNet: !new:speechbrain.lobes.models.dual_path.Dual_Path_Model
     in_channels: !ref <N_encoder_out>
     out_channels: !ref <out_channels>
     num_layers: 2
-    K: 250
+    K: !ref <chunk_size_k> 
     intra_model: !ref <SBtfintra>
     inter_model: !ref <SBtfinter>
     norm: ln

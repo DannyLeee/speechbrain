@@ -55,8 +55,8 @@ def create_libri2mix_csv(
     datapath,
     savepath,
     addnoise=False,
-    version="wav8k/min/",
-    set_types=["train-360", "dev", "test"],
+    version="min/",
+    set_types=["train-100", "dev", "test"],
 ):
     """
     This functions creates the .csv file for the libri2mix dataset

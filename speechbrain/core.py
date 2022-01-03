@@ -931,9 +931,11 @@ class Brain:
         epoch_counter,
         train_set,
         valid_set=None,
+        test_data=None,
         progressbar=None,
         train_loader_kwargs={},
         valid_loader_kwargs={},
+        test_func = None
     ):
         """Iterate epochs and datasets to improve objective.
 
@@ -1076,6 +1078,13 @@ class Brain:
                         self.on_stage_end,
                         args=[Stage.VALID, avg_valid_loss, epoch],
                     )
+            
+            # test stage
+            if test_data is not None:
+                self.on_stage_start(Stage.TEST, epoch)
+                self.modules.eval()
+                with torch.no_grad():
+                    test_func(test_data)
 
             # Debug mode only runs a few epochs
             if self.debug and epoch == self.debug_epochs:

@@ -178,7 +178,7 @@ class Encoder(nn.Module):
     torch.Size([2, 64, 499])
     """
 
-    def __init__(self, kernel_size=2, out_channels=64, in_channels=1):
+    def __init__(self, kernel_size=2, out_channels=64, in_channels=1, padding=0):
         super(Encoder, self).__init__()
         self.conv1d = nn.Conv1d(
             in_channels=in_channels,
@@ -187,6 +187,7 @@ class Encoder(nn.Module):
             stride=kernel_size // 2,
             groups=1,
             bias=False,
+            padding=0
         )
         self.in_channels = in_channels
 
